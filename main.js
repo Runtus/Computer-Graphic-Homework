@@ -1,7 +1,8 @@
 import { mat4, glMatrix, vec3 } from "gl-matrix";
-import background from "./src/background.jpg";
-import earth from "./src/earth.jpg";
-import sun from "./src/sun.jpg";
+import { GLSL } from './src/glsl'
+import background from "./src/assets/background.jpg";
+import earth from "./src/assets/earth.jpg";
+import sun from "./src/assets/sun.jpg";
 
 let canvas, gl;
 
@@ -13,131 +14,30 @@ window.addEventListener("load", () => {
   if (!gl) {
     alert("浏览器不支持webgl，请更换浏览器");
   }
-  render(100, gl);
+  render(gl);
 });
 
-const earth_radius = Math.random() * Math.PI * 2;
-// glsl
-const vertex_sun = `#version 300 es
-    in vec3 aPos;
-    in vec2 aTexCoord;
-
-    uniform mat4 model;
-    uniform mat4 view;
-    uniform mat4 projection;
-
-    out vec2 v_texCoord;
-
-    void main() {
-        // 最终顶点坐标为 模型变换 + 视角变换 + 投影变换 的结果
-        gl_Position = projection * view * model * vec4(aPos, 1.0);
-        v_texCoord = aTexCoord;
-    }
-`;
-
-const fragment_sun = `#version 300 es
-    precision highp float;
-
-    out vec4 FragColor;
-
-    in vec2 v_texCoord;
-    uniform sampler2D u_texture;
-    
-    void main() {
-        FragColor = texture(u_texture, v_texCoord);
-    }
-`;
-
-const vertex_planet = `#version 300 es
-    in vec3 aPos;
-    in vec3 aNorm; // 法向量
-    in vec2 aTexCoord;
-
-    out vec3 FragPos;
-    out vec3 normal;
-    out vec2 v_texCoord;
-
-    uniform mat4 model;
-    uniform mat4 view;
-    uniform mat4 projection;
-
-    void main() {
-        gl_Position = projection * view * model * vec4(aPos, 1.0);
-        vec4 fragPos = model * vec4(aPos, 1.0);
-        FragPos = vec3(fragPos.xyz);
-
-        // 求法线矩阵
-        normal = mat3(transpose(inverse(model))) * aNorm;
-
-        v_texCoord = aTexCoord;
-    }
-`;
-
-const fragment_planet = `#version 300 es
-    precision highp float;
-
-    out vec4 FragColor;
-
-    in vec3 FragPos;
-    in vec3 normal;
-    in vec2 v_texCoord;
-
-    uniform vec3 sunLightColor; // 太阳光照颜色
-    uniform sampler2D u_texture;
-    uniform vec3 sunPos; // 太阳位置
-    float ambientStrength = 0.1; // 环境因子
-
-    void main() {
-        // 环境光
-        vec3 ambient = ambientStrength * sunLightColor;
-        // 漫反射光
-        vec3 lightDirReverse = FragPos - sunPos;
-        vec3 n_lightDirReverse = normalize(lightDirReverse);
-        vec3 n_norm = normalize(normal);
-        float diffuseStrength = max(dot(n_norm, n_lightDirReverse), 0.0); // 漫反射因子
-        vec3 diffuse = diffuseStrength * sunLightColor;
-        vec3 color = texture(u_texture, v_texCoord).rgb;
-        vec3 result = color * (ambient + diffuse);
-        FragColor = vec4(result, 1.0);
-    }
-`;
-
-const vertex_background = `#version 300 es
-    
-    in vec3 aPos;
-    // 纹理坐标
-    in vec2 aTexCoord;
-
-    out vec2 v_texCoord;
-
-    void main() {
-        gl_Position = vec4(aPos, 1.0);
-        v_texCoord = aTexCoord;
-    }
-`;
-
-const fragment_background = `#version 300 es
-    precision highp float;
-
-    out vec4 FragColor;
-
-    // 顶点着色器传入的纹理坐标
-    in vec2 v_texCoord;
-
-    uniform sampler2D u_texture;
-
-    void main() {
-        FragColor = texture(u_texture, v_texCoord);
-    }
-`;
+const EARTH_INIT_ANGLE = Math.random() * Math.PI * 2;
 
 // 背景顶点坐标
 const backVertices = [
-  -1, 1, 0, -1, -1, 0, 1, 1, 0, -1, -1, 0, 1, 1, 0, 1, -1, 0,
+  -1, 1, 0,
+  -1, -1, 0,
+  1 , 1, 0,
+  -1, -1, 0,
+  1, 1, 0,
+  1, -1, 0,
 ];
 
 // 背景纹理坐标
-const backTexCoords = [0, 1, 0, 0, 1, 1, 0, 0, 1, 1, 1, 0];
+const backTexCoords = [
+  0, 1,
+  0, 0,
+  1, 1,
+  0, 0,
+  1, 1,
+  1, 0
+];
 
 /**
  *
@@ -202,17 +102,16 @@ function Shader(gl, vertex, fragment) {
 
 /**
  *
- * @param {number} splitNum
  * @param {WebGL2RenderingContext} gl
  */
-const render = (splitNum, gl) => {
+const render = (gl) => {
   gl.enable(gl.DEPTH_TEST);
   // 背景
-  const backShader = Shader(gl, vertex_background, fragment_background);
+  const backShader = Shader(gl, GLSL.vertex_background, GLSL.fragment_background);
   // 太阳
-  const sunShader = Shader(gl, vertex_sun, fragment_sun);
+  const sunShader = Shader(gl, GLSL.vertex_sun, GLSL.fragment_sun);
   // 行星
-  const earthShader = Shader(gl, vertex_planet, fragment_planet);
+  const earthShader = Shader(gl, GLSL.vertex_earth, GLSL.fragment_earth);
   // vao创建
   const vao = gl.createVertexArray();
   gl.bindVertexArray(vao);
@@ -361,7 +260,7 @@ const render = (splitNum, gl) => {
 
   // 为了设置动画效果，设置渲染回调函数，requestAnimationFrame
   const draw = (time) => {
-    // canvas宽，高初始化
+    // 初始化canvas的宽高，防止模型模糊
     const canvas = gl.canvas;
     const displayWidth = canvas.clientWidth;
     const displayHeight = canvas.clientHeight;
@@ -369,8 +268,8 @@ const render = (splitNum, gl) => {
       canvas.height = displayHeight;
       canvas.width = displayWidth;
     }
+    // 视框设置
     gl.viewport(0, 0, canvas.width, canvas.height);
-
     gl.clearColor(0.0, 0.0, 0.0, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
@@ -381,11 +280,9 @@ const render = (splitNum, gl) => {
       0.1,
       1000
     );
-    // 视角设置
-    const cx = Math.min(70, 60);
-    const cy = Math.max(45, -250);
     // console.log('cameraX', cameraX, 'cameraY', cameraY)
-    const view = mat4.lookAt(mat4.create(), [cx, cy, 90], [0, 0, 0], [0, 1, 0]);
+    // 相机位设置
+    const view = mat4.lookAt(mat4.create(), [10, -90, 90], [0, 0, 0], [0, 1, 0]);
 
     // ---背景
     backShader.useProgram();
@@ -417,7 +314,7 @@ const render = (splitNum, gl) => {
 
     const model = mat4.create();
     mat4.rotateZ(model, model, time * 0.0001 * 3);
-    mat4.rotateZ(model, model, earth_radius);
+    mat4.rotateZ(model, model, EARTH_INIT_ANGLE);
     mat4.translate(model, model, [42, 0, 0]);
     mat4.rotateZ(model, model, time * 0.001 * 0.2);
 
@@ -544,7 +441,7 @@ const computedPositions = (split, radius) => {
   vertices.push(cache_points[0][0], cache_points[0][1], cache_points[0][2]);
   vertices.push(0, -radius, 0);
 
-  // 纹理坐标
+  // 对应纹理坐标存储
   const texX1 = 1 - tex_x;
   const texX2 = 1;
   texture.push(texX1, texY1);
@@ -587,7 +484,5 @@ const computedPositions = (split, radius) => {
     normals.push(...normal2, ...normal2, ...normal2);
   }
 
-  console.log(vertices.length);
-  console.log(normals.length);
   return { vertices, normals, texture };
 };
